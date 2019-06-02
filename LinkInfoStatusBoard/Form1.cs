@@ -16,7 +16,8 @@ namespace LinkInfoStatusBoard
     public partial class Form1 : Form
     {
         /// <summary>
-        /// 存放绘制的内容的区域，刷新的时候使用
+        /// 存放绘制的内容的区域，刷新的时候使用 0 ：车 1：server
+        /// [x y w h ]
         /// </summary>
         private ArrayList itemsHaveDraw = new ArrayList();
         /// <summary>
@@ -24,16 +25,30 @@ namespace LinkInfoStatusBoard
         /// </summary>
         private ArrayList linesHaveDraw = new ArrayList();
         /// <summary>
-        /// 
+        /// 界面能显示的最多元素
+        /// </summary>
+        private int maxShowNum = 11;
+        /// <summary>
+        /// 选择的无人机显示位置
+        /// </summary>
+        private Hashtable uvaSelected = new Hashtable();
+        /// <summary>
+        /// 选择的服务器的连接点
+        /// </summary>
+        private Hashtable serverPintsSelected = new Hashtable();
+        /// <summary>
         /// 车和服务器占屏幕的比例,0:width比例 1:height比例
         /// </summary>
         private double[] carRect = new [] {1/6.0,1/4.0};
         private double[] serverRect = new[] { 1 / 6.0, 1 / 4.0 };
-
+        //标记窗口是否是第一次加载
+        private bool firstLoad = false;
         public Form1()
         {
             InitializeComponent();
-            drawPoint();
+            firstLoad = true;
+            
+            //drawPoint();
         }
 
         private void drawPoint()
@@ -99,17 +114,6 @@ namespace LinkInfoStatusBoard
             (uvaPoints[v1] as double[])[1] = (uvaPoints[v2] as double[])[1];
             (uvaPoints[v2] as double[])[1] = tmp;
         }
-
-        private void calcLocation()
-        {
-            var windowHeight = this.Size.Height;
-            var windowWidth = this.Size.Width;
-            var arPoint = calcCarPoint(windowHeight, windowWidth);
-            var serverPoint = calcServerPoint(windowHeight, windowWidth);
-
-
-            //var carX;
-        }
         /// <summary>
         /// 计算车的矩阵左上角
         /// </summary>
@@ -138,17 +142,48 @@ namespace LinkInfoStatusBoard
             var p = new Point(xStart, yStart);
             return p;
         }
-
+        /// <summary>
+        /// 在server上选择11个点
+        /// </summary>
+        /// <param name="serverCenter"></param>
+        /// <param name="offset"></param>
+        /// <returns></returns>
+        private ArrayList calcServerLinesPoint(Point serverCenter,int offset=5)
+        {
+            ArrayList serverLinePoints = new ArrayList();
+            //从center分别向上向下取5个点
+            serverLinePoints.Add(serverCenter);
+            
+            for(int i=0;i<5;i++)
+            {
+                int upY = serverCenter.Y + (i+1) * offset;
+                int downY = serverCenter.Y - (i + 1) * offset;
+                Point upP = new Point(serverCenter.X, upY);
+                Point downP = new Point(serverCenter.X, downY);
+                serverLinePoints.Add(upP);
+                serverLinePoints.Add(downP);
+            }
+            return serverLinePoints;
+        }
         protected override void OnPaint(PaintEventArgs e)
         {
-            var windowHeight = this.Size.Height;
-            var windowWidth = this.Size.Width;
+            if(firstLoad)
+            {
+                var windowHeight = this.Size.Height;
+                var windowWidth = this.Size.Width;
+
+                Graphics g = this.CreateGraphics();
+                //清除之前绘制的内容
+                clearWindow(g);
+                //绘制新的内容
+                drawNew(g, windowHeight, windowWidth);
+                firstLoad = !firstLoad;
+            }
+            else
+            {
+
+            }
             
-            Graphics g = this.CreateGraphics();
-            //清除之前绘制的内容
-            clearWindow(g);
-            //绘制新的内容
-            drawNew(g,windowHeight,windowWidth);
            
         }
         /// <summary>
@@ -179,7 +214,7 @@ namespace LinkInfoStatusBoard
             g.DrawImage(LinkInfoStatusBoard.Properties.Resources.car,carPoint.X,carPoint.Y,carW,carH);
             g.DrawImage(LinkInfoStatusBoard.Properties.Resources.server, serverPoint.X,serverPoint.Y,serverW,serverH);
             //绘制无人机
-            drawUVA(g,windowHeight,windowWidth,5);
+            drawUVA(g,windowHeight,windowWidth,6);
             //绘制连线
             drawNet(g);
         }
@@ -198,15 +233,47 @@ namespace LinkInfoStatusBoard
                 linesHaveDraw.Add(line);
                 g.DrawLine(mpen, uvaP.X,uvaP.Y , carCenter.X, carCenter.Y);
             }
+            drawNetCar2Server(g,carCenter, serverCenter);
         }
 
+        private void drawNetCar2Server(Graphics g,Point carCenter, Point serverCenter)
+        {
+            //throw new NotImplementedException();
+
+            ArrayList serverPints = calcServerLinesPoint(serverCenter,10);
+            int uvaNum = itemsHaveDraw.Count - 2;
+            if(serverPintsSelected.Count==0||serverPintsSelected.Count!=uvaNum)
+            {
+                serverPintsSelected.Clear();
+                serverPintsSelected = Tool.randSelectIndex(maxShowNum, uvaNum);
+            }
+           
+            foreach(int i in serverPintsSelected.Values)
+            {
+                Point serverP = (Point) serverPints[i];
+                Pen mpen = new Pen(Color.Blue);
+                Point[] line = new Point[] { carCenter,serverP };
+                linesHaveDraw.Add(line);
+                g.DrawLine(mpen,carCenter.X, carCenter.Y,serverP.X,serverP.Y);
+            }
+        }
+
+        /// <summary>
+        /// 计算服务器绘制的中心
+        /// </summary>
+        /// <param name="v"></param>
+        /// <returns>Point（int X,int Y）</returns>
         private Point calcServerCenter(object v)
         {
             //throw new NotImplementedException();
             int[] serverR = v as int[];
             return new Point(Convert.ToInt32(serverR[0] + (serverR[2] * 0.5)), Convert.ToInt32(serverR[1] + (serverR[3] * 0.5)));
         }
-
+        /// <summary>
+        /// 计算通信车绘制的中心
+        /// </summary>
+        /// <param name="v"></param>
+        /// <returns>Point（int X,int Y）</returns>
         private Point calcCarCenter(object v)
         {
             //throw new NotImplementedException();
@@ -226,33 +293,19 @@ namespace LinkInfoStatusBoard
         {
             var uvaItems = calcUVAPoints(windowHeight, windowWidth);
 
-            Hashtable hashtableUVASelected = new Hashtable();
+            
             Random rm = new Random();
-            if(uvaNum>11)
+            if(uvaNum>maxShowNum)
             {
-                uvaNum = 11;
-                MessageBox.Show("最多支持11个无人机");
+                uvaNum = maxShowNum;
+                MessageBox.Show("最多支持"+maxShowNum+"个无人机");
             }
-            for (int i = 0; hashtableUVASelected.Count < uvaNum; i++)
+            if(uvaSelected.Count==0|| uvaSelected.Count!=uvaNum)
             {
-                int nValue = rm.Next(uvaItems.Count);
-                if (!hashtableUVASelected.ContainsValue(nValue))
-                {
-                    hashtableUVASelected.Add(nValue, nValue);
-                    Trace.WriteLine("选择了 "+nValue.ToString()+"位置显示");
-                }
+                uvaSelected.Clear();
+                uvaSelected = Tool.randSelectIndex(11, uvaNum);
             }
-            /*foreach (Double[] uvaItem in uvaItems)
-            {
-                var x = Convert.ToInt32(uvaItem[0]);
-                var y = Convert.ToInt32(uvaItem[1]);
-                var w = Convert.ToInt32(uvaItem[2]);
-                var h = Convert.ToInt32(uvaItem[3]);
-                var uvaR = new[] { x, y, w, h };
-                itemsHaveDraw.Add(uvaR);
-                g.DrawImage(LinkInfoStatusBoard.Properties.Resources.uva, x, y, w, h);
-            }*/
-            foreach(int i in hashtableUVASelected.Values)
+            foreach(int i in uvaSelected.Values)
             {
                 Double[] uvaItem = uvaItems[i] as Double[];
                 var x = Convert.ToInt32(uvaItem[0]);
@@ -285,6 +338,100 @@ namespace LinkInfoStatusBoard
                 g.DrawLine(mp,line[0], line[1]);
             }
             itemsHaveDraw.Clear();
+        }
+
+        private void Form1_MouseHover(object sender, EventArgs e)
+        {
+            Point formPoint = this.PointToClient(Control.MousePosition);
+            Trace.WriteLine(formPoint);
+        }
+
+        private void Form1_MouseDown(object sender, MouseEventArgs e)
+        {
+            var windowHeight = this.Size.Height;
+            var windowWidth = this.Size.Width;
+            Point clickPosition = this.PointToClient(Control.MousePosition);
+            int uvaNo = matchPosition2UvaNo(clickPosition);
+            if(uvaNo>-1)
+            {
+                this.labelTips.Text = "无人机"+uvaNo+"号";
+                this.labelTips.Visible = true;
+            }
+            
+
+
+            /*Graphics g = this.CreateGraphics();
+            //清除之前绘制的内容
+            clearWindow(g);
+            //绘制新的内容
+            drawNew(g, windowHeight, windowWidth);*/
+            this.Height = this.Height-1;
+
+        }
+        /// <summary>
+        /// 获取到点击的位置，是否有无人机。如果有，匹配无人机的
+        /// 编号
+        /// </summary>
+        /// <param name="clickPosition"></param>
+        /// <returns>-1 点击的位置不是无人机 >-1 点击的位置的无人机的编号</returns>
+        private int matchPosition2UvaNo(Point clickPosition)
+        {
+            if (itemsHaveDraw.Count < 3) return -1;
+            //throw new NotImplementedException();
+            for(int i=2;i<itemsHaveDraw.Count;i++)
+            {
+                int[] uvaR = itemsHaveDraw[i] as int[];
+                if(pointInRect(clickPosition,uvaR))
+                {
+                    return i - 2;
+                }
+            }
+            return -1;
+            
+        }
+        /// <summary>
+        /// 判断一个点是否在一个 x，y，w，h四元组确定的矩形内
+        /// </summary>
+        /// <param name="clickPosition"></param>
+        /// <param name="uvaR"></param>
+        /// <returns></returns>
+        private bool pointInRect(Point clickPosition, int[] uvaR)
+        {
+            //throw new NotImplementedException();
+            int x = clickPosition.X;
+            int y = clickPosition.Y;
+            if (x >= uvaR[0] && x <= uvaR[0] + uvaR[2] && y >= uvaR[1] && y <= uvaR[1] + uvaR[3])
+                return true;
+            return false;
+        }
+
+        private void Form1_SizeChanged(object sender, EventArgs e)
+        {
+            //MessageBox.Show(this.Height.ToString()+" "+this.Width.ToString());
+            //Graphics g = this.CreateGraphics();
+            //Pen p = new Pen(Color.Red);
+            //g.DrawLine(p, 100, 100, 200, 200);
+            var windowHeight = this.Size.Height;
+            var windowWidth = this.Size.Width;
+            setControlPosition();
+            Graphics g = this.CreateGraphics();
+            //清除之前绘制的内容
+            clearWindow(g);
+            //绘制新的内容
+            drawNew(g, windowHeight, windowWidth);
+            //labelTips
+        }
+        /// <summary>
+        /// 修改
+        /// </summary>
+        private void setControlPosition()
+        {
+            var windowHeight = this.Height;
+            var windowWidth = this.Width;
+            //throw new NotImplementedException();
+            //将labelTips放置到窗体中间正上方
+            labelTips.Location = new Point(Convert.ToInt32((5 / 12.0) * windowWidth), 0);
+
         }
     }
 
