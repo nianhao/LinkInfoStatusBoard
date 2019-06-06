@@ -21,9 +21,13 @@ namespace LinkInfoStatusBoard
         /// </summary>
         private ArrayList itemsHaveDraw = new ArrayList();
         /// <summary>
-        /// 存放已经绘制的线
+        /// 存放已经绘制的线 {Point,Point}
         /// </summary>
         private ArrayList linesHaveDraw = new ArrayList();
+        /// <summary>
+        /// 存放上次点击的，用于强调的线存放和替代
+        /// </summary>
+        private ArrayList empLines = new ArrayList();
         /// <summary>
         /// 界面能显示的最多元素
         /// </summary>
@@ -41,12 +45,27 @@ namespace LinkInfoStatusBoard
         /// </summary>
         private double[] carRect = new [] {1/6.0,1/4.0};
         private double[] serverRect = new[] { 1 / 6.0, 1 / 4.0 };
-        //标记窗口是否是第一次加载
+        /// <summary>
+        /// 标记窗口是否是第一次加载
+        /// </summary>
         private bool firstLoad = false;
+        /// <summary>
+        /// 标记窗口大小是否发生变化
+        /// </summary>
+        private bool windowResized = false;
+        /// <summary>
+        /// 普通线的颜色
+        /// </summary>
+        private Color lineColor = Color.Blue;
+        /// <summary>
+        /// 强调线的颜色
+        /// </summary>
+        private Color empColor = Color.Red;
         public Form1()
         {
             InitializeComponent();
             firstLoad = true;
+            windowResized = false;
             
             //drawPoint();
         }
@@ -167,8 +186,11 @@ namespace LinkInfoStatusBoard
         }
         protected override void OnPaint(PaintEventArgs e)
         {
-            if(firstLoad)
+            
+            if (firstLoad)
             {
+                labelTips.Text = "当前有无人机在线，单击无人机\n查看链路状态";
+                labelTips.Visible = true;
                 var windowHeight = this.Size.Height;
                 var windowWidth = this.Size.Width;
 
@@ -178,10 +200,7 @@ namespace LinkInfoStatusBoard
                 //绘制新的内容
                 drawNew(g, windowHeight, windowWidth);
                 firstLoad = !firstLoad;
-            }
-            else
-            {
-
+                this.Width = this.Width - 1;
             }
             
            
@@ -195,6 +214,7 @@ namespace LinkInfoStatusBoard
         /// <param name="windowWidth"></param>
         private void drawNew(Graphics g,int windowHeight,int windowWidth)
         {
+            windowResized = false;
             //throw new NotImplementedException();
             //计算车的绘制位置
             var carPoint = calcCarPoint(windowHeight, windowWidth);
@@ -214,13 +234,15 @@ namespace LinkInfoStatusBoard
             g.DrawImage(LinkInfoStatusBoard.Properties.Resources.car,carPoint.X,carPoint.Y,carW,carH);
             g.DrawImage(LinkInfoStatusBoard.Properties.Resources.server, serverPoint.X,serverPoint.Y,serverW,serverH);
             //绘制无人机
-            drawUVA(g,windowHeight,windowWidth,6);
+            drawUVA(g,windowHeight,windowWidth,5);
             //绘制连线
             drawNet(g);
         }
 
         private void drawNet(Graphics g)
         {
+            if (linesHaveDraw.Count > 0)
+                linesHaveDraw.Clear();
             //throw new NotImplementedException();
             Point carCenter = calcCarCenter(itemsHaveDraw[0]);
             Point serverCenter = calcServerCenter(itemsHaveDraw[1]);
@@ -242,6 +264,13 @@ namespace LinkInfoStatusBoard
 
             ArrayList serverPints = calcServerLinesPoint(serverCenter,10);
             int uvaNum = itemsHaveDraw.Count - 2;
+            if(linesHaveDraw.Count>uvaNum)
+            {
+                for(int i=uvaNum;i<linesHaveDraw.Count;i++)
+                {
+                    linesHaveDraw.RemoveAt(i);
+                }
+            }
             if(serverPintsSelected.Count==0||serverPintsSelected.Count!=uvaNum)
             {
                 serverPintsSelected.Clear();
@@ -291,7 +320,7 @@ namespace LinkInfoStatusBoard
         /// <param name="uvaNum">绘制的无人机数量，默认为11，也是最大值</param>
         private void drawUVA(Graphics g, int windowHeight,int windowWidth,int uvaNum=11)
         {
-            var uvaItems = calcUVAPoints(windowHeight, windowWidth);
+            var uvaItems = calcUVAPoints(windowHeight, windowWidth,0);
 
             
             Random rm = new Random();
@@ -323,6 +352,7 @@ namespace LinkInfoStatusBoard
         private void clearWindow(Graphics g)
         {
             //throw new NotImplementedException();
+            //清除uva car server
             foreach(int [] item in itemsHaveDraw)
             {
                 //实心刷
@@ -332,12 +362,21 @@ namespace LinkInfoStatusBoard
                 //用背景色填充矩形
                 g.FillRectangle(mysbrush, myrect);
             }
-            foreach(Point[] line in linesHaveDraw)
+            itemsHaveDraw.Clear();
+            //清除 uva-car car-server之间的连线
+            foreach (Point[] line in linesHaveDraw)
             {
                 Pen mp = new Pen(Control.DefaultBackColor);
                 g.DrawLine(mp,line[0], line[1]);
             }
-            itemsHaveDraw.Clear();
+            linesHaveDraw.Clear();
+            //清除 强调的线
+            foreach(Point [] line in empLines)
+            {
+                Pen mp = new Pen(Control.DefaultBackColor);
+                g.DrawLine(mp, line[0], line[1]);
+            }
+            empLines.Clear();
         }
 
         private void Form1_MouseHover(object sender, EventArgs e)
@@ -356,6 +395,14 @@ namespace LinkInfoStatusBoard
             {
                 this.labelTips.Text = "无人机"+uvaNo+"号";
                 this.labelTips.Visible = true;
+                Graphics g = this.CreateGraphics();
+                if(windowResized)
+                {
+                    clearWindow(g);
+                    drawNew(g, windowHeight, windowWidth);
+                }
+
+                emphasizeLine(g, uvaNo);
             }
             
 
@@ -365,9 +412,38 @@ namespace LinkInfoStatusBoard
             clearWindow(g);
             //绘制新的内容
             drawNew(g, windowHeight, windowWidth);*/
-            this.Height = this.Height-1;
+            //this.Height = this.Height-1;
 
         }
+
+        private void emphasizeLine(Graphics g, int uvaNo)
+        {
+            //throw new NotImplementedException();
+            clearEmphasizeLine(g);
+            Pen p = new Pen(Color.Red);
+            int uvaNum = itemsHaveDraw.Count - 2;
+            Point[] line1 = linesHaveDraw[uvaNo] as Point[];
+            Point[] line2 = linesHaveDraw[uvaNo + uvaNum] as Point[];
+            Trace.WriteLine("重新画这两条线\n"+line1[0]+" "+line1[1] + "\n" + line2);
+            g.DrawLine(p, line1[0],line1[1]);
+
+            g.DrawLines(p, line2);
+            empLines.Add(line1);
+            empLines.Add(line2);
+
+        }
+
+        private void clearEmphasizeLine(Graphics g)
+        {
+            //throw new NotImplementedException();
+            Pen p = new Pen(lineColor);
+            foreach(Point [] line in empLines)
+            {
+                g.DrawLines(p, line);
+            }
+            empLines.Clear(); 
+        }
+
         /// <summary>
         /// 获取到点击的位置，是否有无人机。如果有，匹配无人机的
         /// 编号
@@ -407,6 +483,7 @@ namespace LinkInfoStatusBoard
 
         private void Form1_SizeChanged(object sender, EventArgs e)
         {
+            windowResized = true;
             //MessageBox.Show(this.Height.ToString()+" "+this.Width.ToString());
             //Graphics g = this.CreateGraphics();
             //Pen p = new Pen(Color.Red);
